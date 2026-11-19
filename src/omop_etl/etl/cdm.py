@@ -318,7 +318,7 @@ def build_cdm(spark: SparkSession, staging_dirs: list[Path], vocab_dir: Path, re
 
     vocab_version = vocab["vocabulary"].select("vocabulary_version").first()[0]
     tables["cdm_source"] = spark.createDataFrame([(
-        "Multi-site Research CDM (synthetic demo)", "MSR-DEMO", "Portfolio project",
+        "Rosetta multi-site research CDM (synthetic demo)", "ROSETTA-DEMO", "Portfolio project",
         "Cedar Valley Health (Epic Clarity) + Riverside Community Health (FHIR R4); fictional, synthetic",
         "https://github.com/", "https://github.com/", date(2026, 1, 1), date.today(), "v5.4", 0, vocab_version)],
         "cdm_source_name string, cdm_source_abbreviation string, cdm_holder string, source_description string, "

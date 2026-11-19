@@ -1,4 +1,4 @@
-"""Airflow DAG for the OMOP multi-site pipeline.
+"""Airflow DAG for Rosetta, the multi-site OMOP pipeline.
 
 The DAG is generated from `omop_etl.pipeline.TASKS`, the same task list `omop-etl run` executes, so the
 local run and the orchestrated run cannot drift apart. Each Airflow task calls one plain Python
@@ -33,7 +33,7 @@ def _run(task_name: str) -> dict:
 
 
 with DAG(
-    dag_id="omop_multisite_etl",
+    dag_id="rosetta_omop",
     description="Clarity + FHIR -> OMOP CDM v5.4 -> data quality -> RWE study -> dashboard",
     schedule="0 3 * * *",  # nightly, after partner drops land
     start_date=datetime(2026, 1, 1),

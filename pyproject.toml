@@ -1,5 +1,5 @@
 [project]
-name = "omop-multisite-etl"
+name = "rosetta-omop"
 version = "0.1.0"
 description = "Two fictional health systems (Epic Clarity extracts and FHIR R4 bulk export) mapped into one OMOP CDM v5.4 warehouse with PySpark, checked with OHDSI-style data quality rules, and used for a real-world-evidence study."
 readme = "README.md"

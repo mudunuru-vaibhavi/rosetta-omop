@@ -1,4 +1,6 @@
-# OMOP Multi-site ETL: two EHR formats, one research-ready CDM
+# Rosetta
+
+**Two EHR formats in, one research-ready OMOP CDM out.**
 
 An end-to-end **clinical data engineering** proof of concept. Two fictional health systems send their data in two very
 different formats: an **Epic Clarity** extract and a **FHIR R4** bulk export. A **PySpark** ETL maps both into one
@@ -10,6 +12,9 @@ manuscript-style report.
 > **All data is synthetic.** "Cedar Valley Health" and "Riverside Community Health" are fictional. No real patient
 > data (PHI) is used anywhere. ICD-10-CM, SNOMED CT, LOINC, RxNorm, CPT and UCUM codes are real public codes with
 > paraphrased names.
+
+**Live dashboard:** [mudunuru-vaibhavi.github.io/rosetta-omop](https://mudunuru-vaibhavi.github.io/rosetta-omop/)
+· **Portfolio:** [mudunuru-vaibhavi.github.io](https://mudunuru-vaibhavi.github.io/)
 
 ![Study tab of the dashboard](docs/img/study.png)
 
@@ -512,7 +517,7 @@ its manifest before Spark reads it. Tests run this against a mocked S3 (moto). O
 ## 11. Repository layout
 
 ```
-omop-multisite-etl/
+rosetta-omop/
 ├── src/omop_etl/
 │   ├── sources/           clinical_model.py (simulator), clarity.py (Epic Clarity writer), fhir.py (FHIR writer)
 │   ├── vocab/demo.py      demo vocabulary in Athena format

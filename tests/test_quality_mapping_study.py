@@ -88,5 +88,5 @@ def test_airflow_dag_matches_task_list(project_root):
 
     bag = DagBag(dag_folder=str(project_root / "dags"), include_examples=False)
     assert not bag.import_errors
-    dag = bag.get_dag("omop_multisite_etl")
+    dag = bag.get_dag("rosetta_omop")
     assert {t.task_id for t in dag.tasks} == {t.name for t in TASKS}

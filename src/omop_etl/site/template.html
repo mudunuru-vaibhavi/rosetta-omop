@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OMOP Multi-site CDM</title>
+<title>Rosetta · OMOP CDM</title>
 <meta name="description" content="Two fictional health systems (Epic Clarity + FHIR R4) mapped to one OMOP CDM v5.4 warehouse with PySpark, checked with OHDSI-style data quality rules, and used for a real-world-evidence study. Synthetic data only.">
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
 <style>
@@ -88,6 +88,7 @@ footer { color: var(--text-muted); font-size: 12.5px; max-width: 1180px; margin:
 </head>
 <body>
 <header>
+  <p style="margin:0 0 6px;font:600 12px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)">Rosetta</p>
   <h1>One OMOP warehouse from two very different EHR exports</h1>
   <p>Cedar Valley Health sends an <b>Epic Clarity</b> extract; Riverside Community Health sends a <b>FHIR R4</b> bulk export.
   A PySpark ETL maps both to the <b>OMOP Common Data Model v5.4</b>, OHDSI-style checks test the result, and a new-user
