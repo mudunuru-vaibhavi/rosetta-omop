@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMOP Multi-site CDM</title>
+<meta name="description" content="Two fictional health systems (Epic Clarity + FHIR R4) mapped to one OMOP CDM v5.4 warehouse with PySpark, checked with OHDSI-style data quality rules, and used for a real-world-evidence study. Synthetic data only.">
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4; --surface-1: #fcfcfb; --surface-2: #f0efec; --border: #e2e1dc;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77766f;
+  --grid: #e7e6e1; --accent: #2a78d6;
+  --site-cvh: #2a78d6; --site-rch: #eb6834;
+  --arm-met: #1baf7a; --arm-su: #6250d6;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --ref: #52514e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #121211; --surface-1: #1a1a19; --surface-2: #232321; --border: #33332f;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
+    --grid: #2c2c29; --accent: #3987e5;
+    --site-cvh: #3987e5; --site-rch: #d95926; --arm-met: #199e70; --arm-su: #9085e9; --ref: #c3c2b7;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface-1: #1a1a19; --surface-2: #232321; --border: #33332f;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
+  --grid: #2c2c29; --accent: #3987e5;
+  --site-cvh: #3987e5; --site-rch: #d95926; --arm-met: #199e70; --arm-su: #9085e9; --ref: #c3c2b7;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text-primary);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+header { padding: 28px 16px 0; max-width: 1180px; margin: 0 auto; }
+header h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+header p { margin: 0; color: var(--text-secondary); max-width: 860px; }
+.banner { margin-top: 12px; display: inline-block; font-size: 13px; color: var(--text-secondary);
+  background: var(--surface-2); border: 1px solid var(--border); padding: 4px 10px; border-radius: 999px; }
+nav { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border); }
+nav .inner { max-width: 1180px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+nav button { background: none; border: 0; padding: 12px 12px; font: inherit; color: var(--text-secondary);
+  cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); font-weight: 600; }
+nav .theme { margin-left: auto; }
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+section[hidden] { display: none; }
+h2 { font-size: 19px; margin: 28px 0 6px; }
+h2:first-child { margin-top: 4px; }
+.lede { color: var(--text-secondary); margin: 0 0 14px; max-width: 900px; }
+.grid { display: grid; gap: 14px; }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+@media (max-width: 520px) { .g2 { grid-template-columns: 1fr; } }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.card h3 { margin: 0 0 2px; font-size: 15px; }
+.card .sub { margin: 0 0 8px; color: var(--text-muted); font-size: 13px; }
+.stat .v { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat .l { color: var(--text-secondary); font-size: 13px; }
+.chart { width: 100%; height: 320px; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+td.num, th.num { text-align: right; }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 1px 8px;
+  border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.flow .step { flex: 1 1 140px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.flow .step b { display: block; font-size: 14px; }
+.flow .step span { color: var(--text-secondary); font-size: 12.5px; }
+.flow .arrow { align-self: center; color: var(--text-muted); }
+.filters { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 12px; align-items: center; }
+select, input[type=search] { font: inherit; color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+td code { white-space: nowrap; }
+.muted { color: var(--text-muted); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+footer { color: var(--text-muted); font-size: 12.5px; max-width: 1180px; margin: 0 auto; padding: 0 16px 40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>One OMOP warehouse from two very different EHR exports</h1>
+  <p>Cedar Valley Health sends an <b>Epic Clarity</b> extract; Riverside Community Health sends a <b>FHIR R4</b> bulk export.
+  A PySpark ETL maps both to the <b>OMOP Common Data Model v5.4</b>, OHDSI-style checks test the result, and a new-user
+  cohort study runs on top.</p>
+  <span class="banner">Synthetic data only: two fictional health systems, no real patients.</span>
+</header>
+<nav><div class="inner" role="tablist">
+  <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+  <button role="tab" data-tab="mapping">Vocabulary mapping</button>
+  <button role="tab" data-tab="dq">Data quality</button>
+  <button role="tab" data-tab="sites">Sites compared</button>
+  <button role="tab" data-tab="study">RWE study</button>
+  <button role="tab" data-tab="lineage">Lineage</button>
+  <button class="theme" id="theme" aria-label="Toggle dark mode">◐ Theme</button>
+</div></nav>
+<main>
+<section id="overview">
+  <div class="grid g4" id="kpis"></div>
+  <h2>Pipeline</h2>
+  <p class="lede">Each box is one task in the Airflow DAG (the same task list runs locally with <code>omop-etl run</code>).</p>
+  <div class="flow" id="flow"></div>
+  <h2>Records in the CDM by site</h2>
+  <div class="card"><div class="tbl-wrap"><table id="countsTbl"></table></div></div>
+</section>
+
+<section id="mapping" hidden>
+  <h2>How much of each source mapped to standard concepts</h2>
+  <p class="lede">Share of source records whose code reached an OMOP <b>standard concept</b>, by kind of record. Most codes map through the vocabulary's
+  <code>Maps to</code> relationships; local codes no public vocabulary knows were mapped through a reviewed <code>SOURCE_TO_CONCEPT_MAP</code>.</p>
+  <div class="grid g2">
+    <div class="card"><h3>Mapped records by kind</h3><p class="sub">Vocabulary vs reviewed local mapping</p><div class="legend"><span><i style="background:var(--site-cvh)"></i>Cedar Valley, via vocabulary</span><span><i style="background:var(--site-rch)"></i>Riverside, via vocabulary</span><span><i style="background:var(--text-muted)"></i>via reviewed local mapping</span></div><div class="chart" id="covChart"></div></div>
+    <div class="card"><h3>Source vocabularies</h3><p class="sub">What each site actually sent</p><div class="tbl-wrap"><table id="vocabTbl"></table></div></div>
+  </div>
+  <h2>Local codes: assisted suggestions, human decisions</h2>
+  <p class="lede">For each unmapped local code, candidate standard concepts are retrieved from the vocabulary, the closest match is suggested, deterministic
+  checks validate it, and a person approves, corrects or rejects it. Only approved rows reach the ETL.</p>
+  <div class="card"><div class="tbl-wrap"><table id="reviewTbl"></table></div></div>
+  <h2>One source code, several standard concepts</h2>
+  <div class="card"><div class="tbl-wrap"><table id="o2mTbl"></table></div></div>
+</section>
+
+<section id="dq" hidden>
+  <h2>Data-quality checks</h2>
+  <p class="lede">Modeled on OHDSI's Data Quality Dashboard and the Kahn framework. A check fails when its violation rate is above its threshold; a check that passes
+  but still found rows is <b>passed with flags</b>. Fatal checks (duplicate keys, orphan rows) stop the pipeline before analysis.</p>
+  <div class="grid g4" id="dqKpis"></div>
+  <div class="filters">
+    <label>Category <select id="dqCat"><option value="">All</option><option>Conformance</option><option>Completeness</option><option>Plausibility</option></select></label>
+    <label>Show <select id="dqShow"><option value="issues">Failed or flagged</option><option value="">All checks</option></select></label>
+    <input type="search" id="dqSearch" placeholder="Filter by check, table or field">
+  </div>
+  <div class="card"><div class="tbl-wrap" style="max-height:560px"><table id="dqTbl"></table></div></div>
+</section>
+
+<section id="sites" hidden>
+  <h2>Two sites, one model</h2>
+  <p class="lede">After harmonisation the two health systems should look alike wherever their patients do. Units are the classic trap: Epic stores weight in ounces,
+  FHIR sends kilograms or pounds, and a few HbA1c results arrive in IFCC mmol/mol.</p>
+  <div class="legend" id="siteLegend"></div>
+  <div class="grid g2">
+    <div class="card"><h3>Age at 2025</h3><p class="sub">Persons per 5-year band</p><div class="chart" id="ageChart"></div></div>
+    <div class="card"><h3>Visit types</h3><p class="sub">Share of visits</p><div class="chart" id="visitChart"></div></div>
+    <div class="card"><h3>Most common conditions</h3><p class="sub">Share of persons with the condition</p><div class="chart" id="condChart" style="height:380px"></div></div>
+    <div class="card"><h3>Body weight after unit harmonisation</h3><p class="sub">Median and middle 90% (kg), by unit as received</p><div class="chart" id="wtChart" style="height:380px"></div></div>
+  </div>
+  <h2>Lab and vital-sign distributions</h2>
+  <div class="card"><div class="tbl-wrap"><table id="labTbl"></table></div></div>
+</section>
+
+<section id="study" hidden>
+  <h2 id="studyTitle">Glipizide vs metformin and hypoglycemia</h2>
+  <p class="lede">New-user, active-comparator cohort of adults starting their first oral diabetes drug. The synthetic data was generated with a
+  <b>true hazard ratio of <span id="trueHr"></span></b>, so the analysis can be checked against a known answer.</p>
+  <div class="grid g4" id="studyKpis"></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Cumulative incidence of hypoglycemia</h3><p class="sub">Kaplan–Meier, with 95% band</p><div class="legend" id="armLegend"></div><div class="chart" id="kmChart"></div></div>
+    <div class="card"><h3>Hazard ratio, glipizide vs metformin</h3><p class="sub">95% CI, log scale; dashed line = true value</p><div class="chart" id="forest"></div></div>
+    <div class="card"><h3>Covariate balance</h3><p class="sub">Absolute standardized mean difference; under 0.1 = balanced</p><div class="chart" id="smdChart"></div></div>
+    <div class="card"><h3>1-year risk model: external calibration</h3><p class="sub" id="rmSub"></p><div class="chart" id="calChart"></div></div>
+  </div>
+  <h2>Cohort attrition</h2>
+  <div class="card"><div class="tbl-wrap"><table id="attrTbl"></table></div></div>
+  <h2>Baseline characteristics</h2>
+  <div class="card"><div class="tbl-wrap"><table id="t1Tbl"></table></div></div>
+  <p class="muted" style="margin-top:12px">Full write-up: <a href="study_report.md">study_report.md</a></p>
+</section>
+
+<section id="lineage" hidden>
+  <h2>Field-level lineage</h2>
+  <p class="lede">Where each OMOP field comes from in each source, and the rule applied. This is the core of an ETL specification document.</p>
+  <div class="card"><div class="tbl-wrap"><table id="linTbl"></table></div></div>
+</section>
+</main>
+<footer id="foot"></footer>
+
+<script>
+const D = /*__DATA__*/null;
+const $ = (s) => document.querySelector(s);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt = (n) => (n == null ? "–" : Number(n).toLocaleString());
+const pct = (a, b) => (b ? (100 * a / b).toFixed(1) + "%" : "–");
+const SITE_NAME = { CVH: "Cedar Valley Health", RCH: "Riverside Community Health" };
+const siteColor = (s) => css(s === "CVH" ? "--site-cvh" : "--site-rch");
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function table(el, cols, rows) {
+  el.innerHTML = "<thead><tr>" + cols.map((c) => `<th class="${c.num ? "num" : ""}">${c.label}</th>`).join("") + "</tr></thead><tbody>" +
+    rows.map((r) => "<tr>" + cols.map((c) => `<td class="${c.num ? "num" : ""}">${c.html ? c.html(r) : esc(c.get ? c.get(r) : r[c.key])}</td>`).join("") + "</tr>").join("") + "</tbody>";
+}
+function status(kind, label) {
+  const color = { good: "--good", warning: "--warning", serious: "--serious", critical: "--critical", none: "--text-muted" }[kind];
+  const icon = { good: "✓", warning: "!", serious: "!", critical: "✕", none: "–" }[kind];
+  return `<span class="pill"><span class="dot" style="background:var(${color})"></span>${icon} ${label}</span>`;
+}
+function baseLayout(extra = {}) {
+  const axis = { gridcolor: css("--grid"), zeroline: false, linecolor: css("--border") };
+  extra = Object.assign({}, extra, { xaxis: Object.assign({}, axis, extra.xaxis || {}), yaxis: Object.assign({}, axis, extra.yaxis || {}) });
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: getComputedStyle(document.body).fontFamily, size: 12, color: css("--text-secondary") },
+    margin: { l: 52, r: 16, t: 8, b: 40 }, showlegend: false, hovermode: "closest",
+    hoverlabel: { bgcolor: css("--surface-1"), bordercolor: css("--border"), font: { color: css("--text-primary") } },
+    xaxis: { gridcolor: css("--grid"), zeroline: false, linecolor: css("--border") },
+    yaxis: { gridcolor: css("--grid"), zeroline: false, linecolor: css("--border") },
+    bargap: 0.25,
+  }, extra);
+}
+const cfg = { displayModeBar: false, responsive: true };
+
+// ---------------------------------------------------------------- Overview
+function renderOverview() {
+  const s = D.study, cov = D.coverage;
+  const rec = cov.reduce((a, r) => a + r.records, 0), mapped = cov.reduce((a, r) => a + r.mapped, 0);
+  const dqPass = D.dq.filter((r) => r.status === "PASS").length, dqTot = D.dq.filter((r) => r.status !== "NA").length;
+  const k = [
+    [fmt(D.totals.person), "persons in the CDM, from 2 sites"],
+    [fmt(rec), "source clinical records mapped"],
+    [pct(mapped, rec), "records mapped to a standard concept"],
+    [`${dqPass}/${dqTot}`, "data-quality checks passed"],
+    [s.cox_adjusted.hr.toFixed(2), `adjusted hazard ratio (true value ${s.true_hr.toFixed(1)})`],
+  ];
+  $("#kpis").innerHTML = k.map(([v, l]) => `<div class="card stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  const steps = [
+    ["Generate", "Clarity + FHIR exports with manifests"], ["Land", "S3 or folder; checksums verified"],
+    ["Stage (Spark)", "each format → one shared layout"], ["Map + build CDM (Spark)", "vocabulary, units, domain routing"],
+    ["Warehouse (DuckDB)", "CDM + vocabulary, drug & condition eras"], ["Quality", `${D.dq.length} checks; fatal stops the run`],
+    ["Study", "cohort SQL, KM, Cox, IPTW, risk model"], ["Publish", "this dashboard + report"],
+  ];
+  $("#flow").innerHTML = steps.map(([b, t], i) => `<div class="step"><b>${b}</b><span>${t}</span></div>${i < steps.length - 1 ? '<div class="arrow">→</div>' : ""}`).join("");
+  const tables = ["person", "visit_occurrence", "condition_occurrence", "drug_exposure", "measurement", "observation", "procedure_occurrence"];
+  table($("#countsTbl"), [{ label: "Site", get: (r) => SITE_NAME[r.site] }, ...tables.map((t) => ({ label: t, num: true, get: (r) => fmt(r[t]) }))], D.counts);
+}
+
+// ---------------------------------------------------------------- Mapping
+function renderMapping() {
+  const kinds = ["diagnosis", "procedure", "lab", "vital", "drug"];
+  const traces = [];
+  for (const site of ["CVH", "RCH"]) {
+    const rows = kinds.map((k) => D.coverage.find((r) => r.site === site && r.event_kind === k) || { records: 0, mapped: 0, via_stcm: 0 });
+    traces.push({ type: "bar", orientation: "h", name: `${site} via vocabulary`, y: kinds.map((k) => `${k} · ${site}`),
+      x: rows.map((r) => r.records ? 100 * (r.mapped - r.via_stcm) / r.records : 0), marker: { color: siteColor(site), line: { width: 2, color: css("--surface-1") } },
+      customdata: rows.map((r) => [fmt(r.records), fmt(r.mapped - r.via_stcm)]), hovertemplate: "%{y}<br>%{x:.1f}% via vocabulary (%{customdata[1]} of %{customdata[0]})<extra></extra>" });
+    traces.push({ type: "bar", orientation: "h", name: `${site} via reviewed map`, y: kinds.map((k) => `${k} · ${site}`),
+      x: rows.map((r) => r.records ? 100 * r.via_stcm / r.records : 0), marker: { color: css("--text-muted"), line: { width: 2, color: css("--surface-1") } },
+      customdata: rows.map((r) => fmt(r.via_stcm)), hovertemplate: "%{y}<br>%{x:.1f}% via reviewed local mapping (%{customdata} records)<extra></extra>" });
+  }
+  Plotly.react("covChart", traces, baseLayout({ barmode: "stack", margin: { l: 110, r: 16, t: 8, b: 40 },
+    xaxis: { range: [0, 100], ticksuffix: "%", gridcolor: css("--grid") }, yaxis: { autorange: "reversed" } }), cfg);
+  table($("#vocabTbl"), [{ label: "Site", key: "site" }, { label: "Source vocabulary", key: "vocabulary_id" },
+    { label: "Codes", key: "codes", num: true }, { label: "Records", num: true, get: (r) => fmt(r.records) },
+    { label: "Mapped", num: true, get: (r) => pct(r.mapped, r.records) }], D.coverage_by_vocab);
+  table($("#reviewTbl"), [
+    { label: "Site", key: "site" },
+    { label: "Local code", html: (r) => `<code>${esc(r.source_code)}</code><br><span class="muted">${esc(r.source_code_description)}</span>` },
+    { label: "Records", num: true, get: (r) => fmt(r.records) },
+    { label: "Decision", html: (r) => `<b>${esc(r.target_vocabulary_id)} ${esc(r.target_concept_code)}</b><br>${esc(r.target_concept_name)}` },
+    { label: "Status", html: (r) => r.review_note.startsWith("Suggestion") ? status("warning", "corrected") : status("good", r.status) },
+    { label: "Automated checks on the suggestion", html: (r) => r.validation.split(" | ").map((v) => esc(v)).join("<br>") },
+    { label: "Reviewer note", key: "review_note" }], D.review);
+  table($("#o2mTbl"), [{ label: "Source code", html: (r) => `<code>${esc(r.source_code)}</code>` }, { label: "Standard concepts", key: "standard_concepts" }], D.one_to_many);
+}
+
+// ---------------------------------------------------------------- Data quality
+function renderDQ() {
+  const cats = ["Conformance", "Completeness", "Plausibility"];
+  $("#dqKpis").innerHTML = cats.map((c) => {
+    const rows = D.dq.filter((r) => r.category === c), pass = rows.filter((r) => r.status === "PASS").length, fail = rows.filter((r) => r.status === "FAIL").length;
+    const flag = rows.filter((r) => r.flagged).length;
+    return `<div class="card stat"><div class="v">${pass}/${rows.filter((r) => r.status !== "NA").length}</div><div class="l">${c} passed · ${fail} failed · ${flag} passed with flags</div></div>`;
+  }).join("") + `<div class="card stat"><div class="v">${D.dq.filter((r) => r.severity === "fatal" && r.status === "FAIL").length}</div><div class="l">fatal failures (would stop the run)</div></div>`;
+  const draw = () => {
+    const cat = $("#dqCat").value, show = $("#dqShow").value, q = $("#dqSearch").value.toLowerCase();
+    const rows = D.dq.filter((r) => (!cat || r.category === cat) && (!show || r.status === "FAIL" || r.flagged || r.status === "ERROR") &&
+      (!q || `${r.check_name} ${r.cdm_table} ${r.cdm_field} ${r.description}`.toLowerCase().includes(q)));
+    table($("#dqTbl"), [
+      { label: "Status", html: (r) => r.status === "FAIL" ? status("critical", "Failed") : r.status === "NA" ? status("none", "Not applicable") : r.flagged ? status("warning", "Passed with flags") : status("good", "Passed") },
+      { label: "Check", html: (r) => `<b>${esc(r.check_name)}</b><br><span class="muted">${esc(r.category)}${r.subcategory ? " · " + esc(r.subcategory) : ""}</span>` },
+      { label: "Table.field", html: (r) => `<code>${esc(r.cdm_table)}.${esc(r.cdm_field)}</code>` },
+      { label: "Rule", key: "description" },
+      { label: "Violations", num: true, get: (r) => `${fmt(r.num_violated)} / ${fmt(r.num_denominator)}` },
+      { label: "%", num: true, get: (r) => r.pct_violated.toFixed(3) },
+      { label: "Threshold", num: true, get: (r) => r.threshold_pct + "%" }], rows);
+  };
+  ["#dqCat", "#dqShow", "#dqSearch"].forEach((s) => $(s).addEventListener("input", draw));
+  draw();
+}
+
+// ---------------------------------------------------------------- Sites
+function renderSites() {
+  $("#siteLegend").innerHTML = ["CVH", "RCH"].map((s) => `<span><i style="background:${siteColor(s)}"></i>${SITE_NAME[s]} (${s})</span>`).join("");
+  const persons = Object.fromEntries(D.counts.map((r) => [r.site, r.person]));
+  const bar = (site, x, y, ht, extra = {}) => Object.assign({ type: "bar", name: SITE_NAME[site], x, y, marker: { color: siteColor(site), line: { width: 2, color: css("--surface-1") } }, hovertemplate: ht }, extra);
+  Plotly.react("ageChart", ["CVH", "RCH"].map((s) => {
+    const r = D.age.filter((a) => a.site === s);
+    return bar(s, r.map((a) => a.band === 85 ? "85+" : `${a.band}–${a.band + 4}`), r.map((a) => 100 * a.n / persons[s]), `${s} · %{x}: %{y:.1f}% of persons<extra></extra>`);
+  }), baseLayout({ barmode: "group", yaxis: { ticksuffix: "%", gridcolor: css("--grid") } }), cfg);
+  const visitTot = (s) => D.visits.filter((v) => v.site === s).reduce((a, v) => a + v.n, 0);
+  const vnames = [...new Set(D.visits.map((v) => v.visit))];
+  Plotly.react("visitChart", ["CVH", "RCH"].map((s) => bar(s, vnames.map((n) => { const r = D.visits.find((v) => v.site === s && v.visit === n); return r ? 100 * r.n / visitTot(s) : 0; }), vnames,
+    `${s} · %{y}: %{x:.2f}% of visits<extra></extra>`, { orientation: "h" })),
+    baseLayout({ barmode: "group", margin: { l: 150, r: 16, t: 8, b: 40 }, xaxis: { ticksuffix: "%" }, yaxis: { autorange: "reversed" } }), cfg);
+  const top = [...new Set(D.conditions.filter((c) => c.site === "CVH").slice(0, 10).map((c) => c.condition))];
+  Plotly.react("condChart", ["CVH", "RCH"].map((s) => bar(s, top.map((c) => { const r = D.conditions.find((x) => x.site === s && x.condition === c); return r ? 100 * r.persons / persons[s] : 0; }), top,
+    `${s} · %{y}: %{x:.1f}% of persons<extra></extra>`, { orientation: "h" })), baseLayout({ barmode: "group", margin: { l: 190, r: 16, t: 8, b: 40 }, xaxis: { ticksuffix: "%", gridcolor: css("--grid") }, yaxis: { autorange: "reversed" } }), cfg);
+  const wt = D.lab_dist.filter((r) => r.code === "29463-7");
+  Plotly.react("wtChart", wt.map((r) => ({ type: "scatter", mode: "markers", x: [r.p50], y: [`${r.site} · sent as ${r.unit_received}`],
+    error_x: { type: "data", symmetric: false, array: [r.p95 - r.p50], arrayminus: [r.p50 - r.p05], color: siteColor(r.site), thickness: 2, width: 0 },
+    marker: { size: 11, color: siteColor(r.site), line: { width: 2, color: css("--surface-1") } },
+    hovertemplate: `${r.site}, sent as ${r.unit_received} (${fmt(r.n)} results)<br>median %{x} kg · 5th–95th ${r.p05}–${r.p95} kg<extra></extra>` })),
+    baseLayout({ margin: { l: 150, r: 16, t: 8, b: 40 }, xaxis: { ticksuffix: " kg", gridcolor: css("--grid") } }), cfg);
+  table($("#labTbl"), [{ label: "LOINC", html: (r) => `<code>${esc(r.code)}</code>` }, { label: "Measurement", key: "name" }, { label: "Site", key: "site" },
+    { label: "Unit received", key: "unit_received" }, { label: "Unit stored", key: "unit_stored" }, { label: "N", num: true, get: (r) => fmt(r.n) },
+    { label: "5th", num: true, key: "p05" }, { label: "Median", num: true, key: "p50" }, { label: "95th", num: true, key: "p95" }], D.lab_dist);
+}
+
+// ---------------------------------------------------------------- Study
+function renderStudy() {
+  const s = D.study, arms = s.by_arm;
+  $("#trueHr").textContent = s.true_hr.toFixed(1);
+  const k = [[fmt(s.n), "new users in the cohort"], [fmt(s.events), "hypoglycemia events"],
+    [`${arms.glipizide.rate_per_100py} vs ${arms.metformin.rate_per_100py}`, "events per 100 person-years, glipizide vs metformin"],
+    [s.cox_iptw.hr.toFixed(2), `IPTW hazard ratio (95% CI ${s.cox_iptw.lo.toFixed(2)}–${s.cox_iptw.hi.toFixed(2)})`]];
+  $("#studyKpis").innerHTML = k.map(([v, l]) => `<div class="card stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  const armColor = { glipizide: css("--arm-su"), metformin: css("--arm-met") };
+  $("#armLegend").innerHTML = Object.entries(armColor).map(([a, c]) => `<span><i style="background:${c}"></i>${a[0].toUpperCase() + a.slice(1)}</span>`).join("");
+  const km = [];
+  for (const arm of ["glipizide", "metformin"]) {
+    const c = s.km[arm], col = armColor[arm];
+    km.push({ type: "scatter", mode: "lines", x: c.t_days.concat([...c.t_days].reverse()), y: c.hi.map((v) => 100 * v).concat([...c.lo].reverse().map((v) => 100 * v)),
+      fill: "toself", fillcolor: col, opacity: 0.15, line: { width: 0 }, hoverinfo: "skip" });
+    km.push({ type: "scatter", mode: "lines", line: { shape: "hv", width: 2, color: col }, x: c.t_days, y: c.cum_incidence.map((v) => 100 * v), name: arm,
+      hovertemplate: `${arm}, day %{x}: %{y:.1f}%<extra></extra>` });
+  }
+  const last = (a) => 100 * s.km[a].cum_incidence.at(-1);
+  const ymax = Math.max(...["glipizide", "metformin"].map((a) => 100 * Math.max(...s.km[a].hi))) * 1.08;
+  Plotly.react("kmChart", km, baseLayout({ hovermode: "x unified", xaxis: { title: "Days since starting drug" }, yaxis: { ticksuffix: "%", range: [0, ymax] },
+    annotations: ["glipizide", "metformin"].map((a) => ({ x: 720, y: last(a), text: `${a} ${last(a).toFixed(1)}%`, showarrow: false, xanchor: "right", yanchor: a === "glipizide" ? "top" : "bottom", yshift: a === "glipizide" ? -6 : 6, font: { color: css("--text-primary"), size: 12 } })) }), cfg);
+
+  const rows = [["Unadjusted", s.cox_unadjusted], ["Adjusted", s.cox_adjusted], ["IPTW", s.cox_iptw]];
+  if (s.oracle) rows.push(["Oracle (true data)", s.oracle.oracle_adjusted_hr]);
+  for (const [site, v] of Object.entries(s.by_site)) rows.push([`Adjusted · ${site} only`, v]);
+  Plotly.react("forest", [{ type: "scatter", mode: "markers", y: rows.map((r) => r[0]), x: rows.map((r) => r[1].hr),
+    error_x: { type: "data", symmetric: false, array: rows.map((r) => r[1].hi - r[1].hr), arrayminus: rows.map((r) => r[1].hr - r[1].lo), color: css("--text-secondary"), thickness: 2, width: 0 },
+    marker: { size: 10, color: css("--accent"), line: { width: 2, color: css("--surface-1") } },
+    hovertemplate: "%{y}<br>HR %{x:.2f}<extra></extra>", text: rows.map((r) => `${r[1].hr.toFixed(2)} (${r[1].lo.toFixed(2)}–${r[1].hi.toFixed(2)})`) }],
+    baseLayout({ margin: { l: 150, r: 16, t: 8, b: 40 }, xaxis: { type: "log", range: [Math.log10(0.9), Math.log10(5)], tickvals: [1, 1.5, 2, 3, 4], gridcolor: css("--grid") }, yaxis: { autorange: "reversed" },
+      shapes: [{ type: "line", x0: s.true_hr, x1: s.true_hr, yref: "paper", y0: 0, y1: 1, line: { dash: "dash", width: 1.5, color: css("--ref") } },
+               { type: "line", x0: 1, x1: 1, yref: "paper", y0: 0, y1: 1, line: { width: 1, color: css("--border") } }] }), cfg);
+
+  const t1 = s.table1;
+  Plotly.react("smdChart", [["Before weighting", "smd_before", css("--text-muted")], ["After IPTW", "smd_after_iptw", css("--accent")]].map(([n, k, c]) => ({
+    type: "scatter", mode: "markers", name: n, y: t1.map((r) => r.variable), x: t1.map((r) => Math.abs(r[k])), marker: { size: 10, color: c, line: { width: 2, color: css("--surface-1") } },
+    hovertemplate: `${n}<br>%{y}: %{x:.3f}<extra></extra>` })), baseLayout({ showlegend: true, legend: { orientation: "h", y: -0.2 }, margin: { l: 200, r: 16, t: 8, b: 60 },
+      xaxis: { rangemode: "tozero", gridcolor: css("--grid") }, yaxis: { autorange: "reversed" },
+      shapes: [{ type: "line", x0: 0.1, x1: 0.1, yref: "paper", y0: 0, y1: 1, line: { dash: "dash", width: 1.5, color: css("--ref") } }] }), cfg);
+
+  const rm = s.risk_model, cal = rm.calibration || [];
+  $("#rmSub").textContent = `Trained at ${rm.train_site} (AUC ${rm.auc_train}), validated at ${rm.test_site} (AUC ${rm.auc_test}, Brier ${rm.brier_test})`;
+  const mx = Math.max(...cal.map((c) => Math.max(c.predicted, c.observed))) * 100 * 1.1;
+  Plotly.react("calChart", [{ type: "scatter", mode: "lines", x: [0, mx], y: [0, mx], line: { dash: "dash", width: 1.5, color: css("--ref") }, hoverinfo: "skip" },
+    { type: "scatter", mode: "markers+lines", x: cal.map((c) => 100 * c.predicted), y: cal.map((c) => 100 * c.observed), line: { width: 2, color: css("--accent") },
+      marker: { size: 9, color: css("--accent"), line: { width: 2, color: css("--surface-1") } }, customdata: cal.map((c) => c.n),
+      hovertemplate: "predicted %{x:.1f}% · observed %{y:.1f}% (n=%{customdata})<extra></extra>" }],
+    baseLayout({ xaxis: { title: "Predicted 1-year risk", ticksuffix: "%", gridcolor: css("--grid"), range: [0, mx] }, yaxis: { title: "Observed", ticksuffix: "%", gridcolor: css("--grid"), range: [0, mx] } }), cfg);
+
+  table($("#attrTbl"), [{ label: "Step", key: "step" }, { label: "Persons", num: true, get: (r) => fmt(r.persons) }], s.attrition);
+  table($("#t1Tbl"), [{ label: "Characteristic", key: "variable" }, { label: "Glipizide", num: true, key: "glipizide" }, { label: "Metformin", num: true, key: "metformin" },
+    { label: "SMD before", num: true, get: (r) => r.smd_before.toFixed(3) }, { label: "SMD after IPTW", num: true, get: (r) => r.smd_after_iptw.toFixed(3) }], s.table1);
+}
+
+function renderLineage() {
+  table($("#linTbl"), [{ label: "OMOP table", html: (r) => `<code>${esc(r.table)}</code>` }, { label: "Field", html: (r) => `<code>${esc(r.field)}</code>` },
+    { label: "Cedar Valley (Clarity)", key: "cvh" }, { label: "Riverside (FHIR)", key: "rch" }, { label: "Rule", key: "rule" }], D.lineage);
+}
+
+const renderers = { overview: renderOverview, mapping: renderMapping, dq: renderDQ, sites: renderSites, study: renderStudy, lineage: renderLineage };
+const drawn = new Set();
+function show(tab) {
+  document.querySelectorAll("nav [role=tab]").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  document.querySelectorAll("main > section").forEach((s) => (s.hidden = s.id !== tab));
+  if (!drawn.has(tab)) { renderers[tab](); drawn.add(tab); }
+  try { localStorage.setItem("omop-tab", tab); history.replaceState(null, "", "#" + tab); } catch (e) {}
+}
+document.querySelectorAll("nav [role=tab]").forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));
+$("#theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  const current = [...drawn]; drawn.clear(); current.forEach((t) => { renderers[t](); drawn.add(t); });
+});
+$("#foot").innerHTML = `Built ${esc(D.generated)} by <code>omop-etl run</code>. OMOP CDM v5.4 · demo vocabulary (real public codes, local concept ids) · synthetic data.`;
+let start = location.hash.slice(1);  // links like index.html#study open that tab
+if (!renderers[start]) { start = "overview"; try { start = localStorage.getItem("omop-tab") || "overview"; } catch (e) {} }
+show(renderers[start] ? start : "overview");
+window.addEventListener("load", () => setTimeout(() => window.scrollTo(0, 0), 0));  // the #tab hash also matches a section id
+</script>
+</body>
+</html>
